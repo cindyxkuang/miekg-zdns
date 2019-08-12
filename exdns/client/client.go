@@ -41,15 +41,6 @@ func main() {
 	}
 	fmt.Println("connection 1: ", conn.LocalAddr())
 	conn.Close()
-	
-	conn2, err := c.Dial("8.8.8.8:53")
-	if err != nil {
-		log.Fatalf("failed to dial: %v", err)
-	}
-	if conn2 == nil {
-		log.Fatalf("conn is nil")
-	}
-	fmt.Println("connection 2: ", conn2.LocalAddr())
 }
 
 func HelloServer(w dns.ResponseWriter, req *dns.Msg) {
