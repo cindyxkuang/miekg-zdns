@@ -31,6 +31,7 @@ type Client struct {
 	Net       string      // if "tcp" or "tcp-tls" (DNS over TLS) a TCP query will be initiated, otherwise an UDP one (default is "" for UDP)
 	LocalAddr string 	  // preferred address to dial from local machine
 	Conn
+	ExistingConn bool     // temporary field to test if connection exists
 	UDPSize   uint16      // minimum receive buffer for UDP messages
 	TLSConfig *tls.Config // TLS connection configuration
 	// Dialer    *net.Dialer // a net.Dialer used to set local address, timeouts and more
@@ -83,17 +84,10 @@ func (c *Client) writeTimeout() time.Duration {
 
 // Dial connects to the address on the named network.
 func (c *Client) Dial(address string) (conn *Conn, err error) {
-	// // create a new dialer with the appropriate timeout and socket options
-	// var d net.Dialer
-	// if c.Dialer == nil {
-	// 	fmt.Println("Creating new dialer")
-	// 	d = net.Dialer{
-	// 			Control: reuseportControl,
-	// 			Timeout: c.getTimeoutForRequest(c.dialTimeout()),
-	// 		}
-	// } else {
-	// 	d = *c.Dialer
-	// }
+	if c.ExistingConn {
+		return &c.Conn, nil
+	}
+
 	network := c.Net
 	if network == "" {
 		network = "udp"
@@ -108,7 +102,6 @@ func (c *Client) Dial(address string) (conn *Conn, err error) {
 	    }
 	    localAddr = initConn.LocalAddr().String()
 	    c.LocalAddr = localAddr
-	    fmt.Println("found preferred local address: ", localAddr)
 	    initConn.Close()
 	} else {
 		localAddr = c.LocalAddr
@@ -122,21 +115,18 @@ func (c *Client) Dial(address string) (conn *Conn, err error) {
 		if err != nil {
     		return nil, err
     	}
-    	fmt.Println("resolved UDP address")
 
     	// create UDPAddr struct for remote address (IP:Port)
 		remoteAddr, err := net.ResolveUDPAddr(network, address)
 		if err != nil {
     		return nil, err
     	}
-		fmt.Println(remoteAddr.String())
 
-		// dial from local address at specific port
+		// dial from local address
 		conn.Conn, err = net.DialUDP(network, localUDPAddr, remoteAddr)
 		if err != nil {
 	    	return nil, err
 		}
-		fmt.Println("successfully dialed")
 	// TCP
 	default:
 		localTCPAddr, err := net.ResolveTCPAddr(network, localAddr)
@@ -149,23 +139,9 @@ func (c *Client) Dial(address string) (conn *Conn, err error) {
 	    	return nil, err
 		}
 	}
- 
-	
 
-	// useTLS := strings.HasPrefix(network, "tcp") && strings.HasSuffix(network, "-tls")
-
-	// conn = new(Conn)
-	// if useTLS {
-	// 	network = strings.TrimSuffix(network, "-tls")
-
-	// 	conn.Conn, err = tls.DialWithDialer(&d, network, address, c.TLSConfig)
-	// } else {
-	// 	conn.Conn, err = d.Dial(network, address)
-	// }
-	// if err != nil {
-	// 	return nil, err
-	// }
-
+	c.ExistingConn = true
+	c.Conn = *conn
 	return conn, nil
 }
 
@@ -208,7 +184,6 @@ func (c *Client) exchange(m *Msg, a string) (r *Msg, rtt time.Duration, err erro
 	if err != nil {
 		return nil, 0, err
 	}
-	defer co.Close()
 
 	opt := m.IsEdns0()
 	// If EDNS0 is used use that for size.

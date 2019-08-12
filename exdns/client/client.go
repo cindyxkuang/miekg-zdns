@@ -9,80 +9,40 @@ package main
 import (
 	"fmt"
 	"log"
-	"net"
-	"sync"
-	"time"
 
-	"github.com/miekg/dns"
+	"github.com/miekg-zdns/dns"
 ) 
 
 func main() {
-	dns.HandleFunc("miek.nl.", HelloServer)
-	defer dns.HandleRemove("miek.nl.")
-
-	s, addrstr, err := RunLocalUDPServer(":0")
-	fmt.Println(addrstr)
-	if err != nil {
-		log.Fatalf("unable to run test server: %v", err)
-	}
-	defer s.Shutdown()
-
 	m := new(dns.Msg)
 	m.SetQuestion("miek.nl.", dns.TypeSOA)
 
 	c := new(dns.Client)
-	conn, err := c.Dial("8.8.8.8:53")
+
+	fmt.Println("first query")
+	r, _, err := c.Exchange(m, "8.8.8.8:53")
 	if err != nil {
-		log.Fatalf("failed to dial: %v", err)
-		s.Shutdown()
+		log.Fatalf("failed to exchange: %v", err)
 	}
-	if conn == nil {
-		log.Fatalf("conn is nil")
+	if r == nil {
+		log.Fatalf("response is nil")
 	}
-	fmt.Println("connection 1: ", conn.LocalAddr())
-	conn.Close()
-}
+	if r.Rcode != dns.RcodeSuccess {
+		log.Fatalf("failed to get an valid answer\n%v", r)
+	}
+	fmt.Println("successful: %v", r)
 
-func HelloServer(w dns.ResponseWriter, req *dns.Msg) {
-	m := new(dns.Msg)
-	m.SetReply(req)
-
-	m.Extra = make([]dns.RR, 1)
-	m.Extra[0] = &dns.TXT{Hdr: dns.RR_Header{Name: m.Question[0].Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: 0}, Txt: []string{"Hello world"}}
-	w.WriteMsg(m)
-}
-
-func RunLocalUDPServer(laddr string) (*dns.Server, string, error) {
-	server, l, _, err := RunLocalUDPServerWithFinChan(laddr)
-
-	return server, l, err
-}
-
-func RunLocalUDPServerWithFinChan(laddr string, opts ...func(*dns.Server)) (*dns.Server, string, chan error, error) {
-	pc, err := net.ListenPacket("udp", laddr)
+	// second DNS query
+	fmt.Println("second query")
+	r, _, err = c.Exchange(m, "8.8.8.8:53")
 	if err != nil {
-		return nil, "", nil, err
+		log.Fatalf("failed to exchange: %v", err)
 	}
-	server := &dns.Server{PacketConn: pc, ReadTimeout: time.Hour, WriteTimeout: time.Hour}
-
-	waitLock := sync.Mutex{}
-	waitLock.Lock()
-	server.NotifyStartedFunc = waitLock.Unlock
-
-	// fin must be buffered so the goroutine below won't block
-	// forever if fin is never read from. This always happens
-	// in RunLocalUDPServer and can happen in TestShutdownUDP.
-	fin := make(chan error, 1)
-
-	for _, opt := range opts {
-		opt(server)
+	if r == nil {
+		log.Fatalf("response is nil")
 	}
-
-	go func() {
-		fin <- server.ActivateAndServe()
-		pc.Close()
-	}()
-
-	waitLock.Lock()
-	return server, pc.LocalAddr().String(), fin, nil
+	if r.Rcode != dns.RcodeSuccess {
+		log.Fatalf("failed to get an valid answer\n%v", r)
+	}
+	fmt.Println("successful: %v", r)
 }
