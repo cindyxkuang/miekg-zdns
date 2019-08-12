@@ -31,7 +31,7 @@ func main() {
 	m.SetQuestion("miek.nl.", dns.TypeSOA)
 
 	c := new(dns.Client)
-	conn, err := c.Dial("8.8.8.8:43")
+	conn, err := c.Dial("8.8.8.8:53")
 	if err != nil {
 		log.Fatalf("failed to dial: %v", err)
 		s.Shutdown()
@@ -42,7 +42,7 @@ func main() {
 	fmt.Println("connection 1: ", conn.LocalAddr())
 	conn.Close()
 	
-	conn2, err := c.Dial("8.8.8.8:80")
+	conn2, err := c.Dial("8.8.8.8:53")
 	if err != nil {
 		log.Fatalf("failed to dial: %v", err)
 	}
