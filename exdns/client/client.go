@@ -19,7 +19,7 @@ func main() {
 
 	c := new(dns.Client)
 
-	fmt.Println("first query")
+	fmt.Println("FIRST QUERY")
 	r, _, err := c.Exchange(m, "8.8.8.8:53")
 	if err != nil {
 		log.Fatalf("failed to exchange: %v", err)
@@ -30,10 +30,10 @@ func main() {
 	if r.Rcode != dns.RcodeSuccess {
 		log.Fatalf("failed to get an valid answer\n%v", r)
 	}
-	fmt.Println("successful: %v", r)
+	fmt.Println("successful: \n%v", r)
 
 	// second DNS query
-	fmt.Println("second query")
+	fmt.Println("SECOND QUERY")
 	r, _, err = c.Exchange(m, "8.8.8.8:53")
 	if err != nil {
 		log.Fatalf("failed to exchange: %v", err)
@@ -44,5 +44,5 @@ func main() {
 	if r.Rcode != dns.RcodeSuccess {
 		log.Fatalf("failed to get an valid answer\n%v", r)
 	}
-	fmt.Println("successful: %v", r)
+	fmt.Println("successful: \n%v", r)
 }

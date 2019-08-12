@@ -85,6 +85,7 @@ func (c *Client) writeTimeout() time.Duration {
 // Dial connects to the address on the named network.
 func (c *Client) Dial(address string) (conn *Conn, err error) {
 	if c.ExistingConn {
+		fmt.Println("existing connection from ", c.LocalAddr)
 		return &c.Conn, nil
 	}
 
@@ -123,6 +124,7 @@ func (c *Client) Dial(address string) (conn *Conn, err error) {
     	}
 
 		// dial from local address
+		fmt.Println("dialing from ", c.LocalAddr)
 		conn.Conn, err = net.DialUDP(network, localUDPAddr, remoteAddr)
 		if err != nil {
 	    	return nil, err
