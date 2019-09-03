@@ -20,7 +20,8 @@ const (
 
 // A Conn represents a connection to a DNS server.
 type Conn struct {
-	net.Conn                         // a net.Conn holding the connection
+	net.PacketConn                   // a net.PacketConn holding the connection
+	RemoteAddr	   string  			 // TODO: server address(es) that our client is connecting with
 	UDPSize        uint16            // minimum receive buffer for UDP messages
 	TsigSecret     map[string]string // secret(s) for Tsig map[<zonename>]<base64 secret>, zonename must be in canonical form (lowercase, fqdn, see RFC 4034 Section 6.2)
 	tsigRequestMAC string
@@ -34,12 +35,11 @@ type Client struct {
 	ExistingConn bool     // temporary field to test if connection exists
 	UDPSize   uint16      // minimum receive buffer for UDP messages
 	TLSConfig *tls.Config // TLS connection configuration
-	// Dialer    *net.Dialer // a net.Dialer used to set local address, timeouts and more
+	
 	// Timeout is a cumulative timeout for dial, write and read, defaults to 0 (disabled) - overrides DialTimeout, ReadTimeout,
-	// WriteTimeout when non-zero. Can be overridden with net.Dialer.Timeout (see Client.ExchangeWithDialer and
-	// Client.Dialer) or context.Context.Deadline (see the deprecated ExchangeContext)
+	// WriteTimeout when non-zero. 
 	Timeout        time.Duration
-	DialTimeout    time.Duration     // net.DialTimeout, defaults to 2 seconds, or net.Dialer.Timeout if expiring earlier - overridden by Timeout when that value is non-zero
+	DialTimeout    time.Duration     // net.DialTimeout, defaults to 2 seconds - overridden by Timeout when that value is non-zero
 	ReadTimeout    time.Duration     // net.Conn.SetReadTimeout value for connections, defaults to 2 seconds - overridden by Timeout when that value is non-zero
 	WriteTimeout   time.Duration     // net.Conn.SetWriteTimeout value for connections, defaults to 2 seconds - overridden by Timeout when that value is non-zero
 	TsigSecret     map[string]string // secret(s) for Tsig map[<zonename>]<base64 secret>, zonename must be in canonical form (lowercase, fqdn, see RFC 4034 Section 6.2)
@@ -84,8 +84,10 @@ func (c *Client) writeTimeout() time.Duration {
 
 // Dial connects to the address on the named network.
 func (c *Client) Dial(address string) (conn *Conn, err error) {
+	fmt.Println("dialing to ", address)
 	if c.ExistingConn {
-		fmt.Println("existing connection from ", c.LocalAddr)
+		fmt.Println("dialing from ", c.LocalAddr)
+		c.Conn.RemoteAddr = address
 		return &c.Conn, nil
 	}
 
@@ -109,41 +111,16 @@ func (c *Client) Dial(address string) (conn *Conn, err error) {
 	}
 
 	conn = new(Conn)
-	switch network {
-	case "udp":
-		// create UDPAddr struct for local address (IP:Port)
-		localUDPAddr, err := net.ResolveUDPAddr(network, localAddr)
-		if err != nil {
-    		return nil, err
-    	}
-
-    	// create UDPAddr struct for remote address (IP:Port)
-		remoteAddr, err := net.ResolveUDPAddr(network, address)
-		if err != nil {
-    		return nil, err
-    	}
-
-		// dial from local address
-		fmt.Println("dialing from ", c.LocalAddr)
-		conn.Conn, err = net.DialUDP(network, localUDPAddr, remoteAddr)
-		if err != nil {
-	    	return nil, err
-		}
-	// TCP
-	default:
-		localTCPAddr, err := net.ResolveTCPAddr(network, localAddr)
-		if err != nil {
-    		return nil, err
-		}
-		remoteAddr := net.TCPAddr{IP: net.ParseIP(address)}
-		conn.Conn, err = net.DialTCP(network, localTCPAddr, &remoteAddr)
-		if err != nil {
-	    	return nil, err
-		}
+	// dial from local address
+	fmt.Println("dialing from ", localAddr)
+	conn.PacketConn, err = net.ListenPacket(network, localAddr)
+	if err != nil {
+    	return nil, err
 	}
+	conn.RemoteAddr = address
 
 	c.ExistingConn = true
-	c.Conn = *conn
+	c.PacketConn = *conn
 	return conn, nil
 }
 
@@ -159,8 +136,6 @@ func (c *Client) Dial(address string) (conn *Conn, err error) {
 // returned. Specifically this means adding an EDNS0 OPT RR that will advertise a larger
 // buffer, see SetEdns0. Messages without an OPT RR will fallback to the historic limit
 // of 512 bytes
-// To specify a local address or a timeout, the caller has to set the `Client.Dialer`
-// attribute appropriately
 func (c *Client) Exchange(m *Msg, address string) (r *Msg, rtt time.Duration, err error) {
 	if !c.SingleInflight {
 		return c.exchange(m, address)
@@ -252,7 +227,7 @@ func (co *Conn) ReadMsgHeader(hdr *Header) ([]byte, error) {
 		err error
 	)
 
-	if _, ok := co.Conn.(net.PacketConn); ok {
+	if _, ok := co.PacketConn.(net.PacketConn); ok {
 		if co.UDPSize > MinMsgSize {
 			p = make([]byte, co.UDPSize)
 		} else {
@@ -261,12 +236,12 @@ func (co *Conn) ReadMsgHeader(hdr *Header) ([]byte, error) {
 		n, err = co.Read(p)
 	} else {
 		var length uint16
-		if err := binary.Read(co.Conn, binary.BigEndian, &length); err != nil {
+		if err := binary.Read(co.PacketConn.(net.Conn), binary.BigEndian, &length); err != nil {
 			return nil, err
 		}
 
 		p = make([]byte, length)
-		n, err = io.ReadFull(co.Conn, p)
+		n, err = io.ReadFull(co.PacketConn.(net.Conn), p)
 	}
 
 	if err != nil {
@@ -288,24 +263,25 @@ func (co *Conn) ReadMsgHeader(hdr *Header) ([]byte, error) {
 
 // Read implements the net.Conn read method.
 func (co *Conn) Read(p []byte) (n int, err error) {
-	if co.Conn == nil {
+	if co.PacketConn == nil {
 		return 0, ErrConnEmpty
 	}
 
-	if _, ok := co.Conn.(net.PacketConn); ok {
+	if _, ok := co.PacketConn.(net.PacketConn); ok {
 		// UDP connection
-		return co.Conn.Read(p)
+		n, _, err = co.PacketConn.ReadFrom(p)
+		return n, err
 	}
 
 	var length uint16
-	if err := binary.Read(co.Conn, binary.BigEndian, &length); err != nil {
+	if err := binary.Read(co.PacketConn.(net.Conn), binary.BigEndian, &length); err != nil {
 		return 0, err
 	}
 	if int(length) > len(p) {
 		return 0, io.ErrShortBuffer
 	}
 
-	return io.ReadFull(co.Conn, p[:length])
+	return io.ReadFull(co.PacketConn.(net.Conn), p[:length])
 }
 
 // WriteMsg sends a message through the connection co.
@@ -337,14 +313,18 @@ func (co *Conn) Write(p []byte) (int, error) {
 		return 0, &Error{err: "message too large"}
 	}
 
-	if _, ok := co.Conn.(net.PacketConn); ok {
-		return co.Conn.Write(p)
+	if _, ok := co.PacketConn.(net.PacketConn); ok {
+		dst, err := net.ResolveUDPAddr("udp", co.RemoteAddr)
+		if err != nil {
+			return 1, err
+		}
+		return co.PacketConn.WriteTo(p, dst)
 	}
 
 	l := make([]byte, 2)
 	binary.BigEndian.PutUint16(l, uint16(len(p)))
 
-	n, err := (&net.Buffers{l, p}).WriteTo(co.Conn)
+	n, err := (&net.Buffers{l, p}).WriteTo(co.PacketConn.(net.Conn))
 	return int(n), err
 }
 
@@ -363,7 +343,7 @@ func (c *Client) getTimeoutForRequest(timeout time.Duration) time.Duration {
 // Dial connects to the address on the named network.
 func Dial(network, address string) (conn *Conn, err error) {
 	conn = new(Conn)
-	conn.Conn, err = net.Dial(network, address)
+	conn.PacketConn, err = net.ListenPacket(network, address)
 	if err != nil {
 		return nil, err
 	}
@@ -392,7 +372,7 @@ func ExchangeContext(ctx context.Context, m *Msg, a string) (r *Msg, err error) 
 func ExchangeConn(c net.Conn, m *Msg) (r *Msg, err error) {
 	println("dns: ExchangeConn: this function is deprecated")
 	co := new(Conn)
-	co.Conn = c
+	co.PacketConn = c.(net.PacketConn)
 	if err = co.WriteMsg(m); err != nil {
 		return nil, err
 	}
@@ -439,7 +419,6 @@ func (c *Client) ExchangeContext(ctx context.Context, m *Msg, a string) (r *Msg,
 	}
 	c.Timeout = timeout
 	// not passing the context to the underlying calls, as the API does not support
-	// context. For timeouts you should set up Client.Dialer and call Client.Exchange.
-	// TODO(tmthrgd,miekg): this is a race condition.
+	// context. 
 	return c.Exchange(m, a)
 }

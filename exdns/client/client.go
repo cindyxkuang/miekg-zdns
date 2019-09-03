@@ -34,7 +34,7 @@ func main() {
 
 	// second DNS query
 	fmt.Println("SECOND QUERY")
-	r, _, err = c.Exchange(m, "8.8.8.8:53")
+	r, _, err = c.Exchange(m, "8.8.4.4:53")
 	if err != nil {
 		log.Fatalf("failed to exchange: %v", err)
 	}
