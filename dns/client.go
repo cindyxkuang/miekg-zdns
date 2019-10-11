@@ -21,7 +21,7 @@ const (
 // A Conn represents a connection to a DNS server.
 type Conn struct {
 	net.PacketConn                   // a net.PacketConn holding the connection
-	RemoteAddr	   string  			 // TODO: server address(es) that our client is connecting with
+	RemoteAddr	   string  			 // server address that our client is connecting with
 	UDPSize        uint16            // minimum receive buffer for UDP messages
 	TsigSecret     map[string]string // secret(s) for Tsig map[<zonename>]<base64 secret>, zonename must be in canonical form (lowercase, fqdn, see RFC 4034 Section 6.2)
 	tsigRequestMAC string
@@ -84,9 +84,7 @@ func (c *Client) writeTimeout() time.Duration {
 
 // Dial connects to the address on the named network.
 func (c *Client) Dial(address string) (conn *Conn, err error) {
-	fmt.Println("dialing to ", address)
 	if c.ExistingConn {
-		fmt.Println("dialing from ", c.LocalAddr)
 		c.Conn.RemoteAddr = address
 		return &c.Conn, nil
 	}
@@ -112,7 +110,6 @@ func (c *Client) Dial(address string) (conn *Conn, err error) {
 
 	conn = new(Conn)
 	// dial from local address
-	fmt.Println("dialing from ", localAddr)
 	conn.PacketConn, err = net.ListenPacket(network, localAddr)
 	if err != nil {
     	return nil, err

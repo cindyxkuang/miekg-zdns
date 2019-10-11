@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/miekg-zdns/dns"
+	"github.com/miekg/dns"
 ) 
 
 func main() {
